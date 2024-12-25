@@ -1,0 +1,194 @@
+"""
+ARTISYNTH: AI-Powered Art Engine (Random Image Version)
+
+Description:
+  - Creates random 64x64x3 images internally (no user images).
+  - Trains a small autoencoder on each random image, refining its internal representation.
+  - Generates an art piece by applying a stylized color shift to the reconstruction.
+  - Produces a GPT-4o textual interpretation discussing the deeper meaning behind each piece.
+
+Usage:
+  python artisynth.py --iterations <num_iterations>
+
+Dependencies:
+  pip install torch torchvision Pillow numpy transformers
+"""
+
+import argparse
+import time
+import random
+import numpy as np
+from PIL import Image
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from transformers import pipeline, set_seed
+
+# -----------------------------
+# 1. Define the Autoencoder
+# -----------------------------
+class Autoencoder(nn.Module):
+    def __init__(self):
+        super(Autoencoder, self).__init__()
+        # Encoder: input [3, 64, 64] -> latent features
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 16, 4, stride=2, padding=1),  # [16, 32, 32]
+            nn.ReLU(True),
+            nn.Conv2d(16, 32, 4, stride=2, padding=1), # [32, 16, 16]
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, 4, stride=2, padding=1), # [64, 8, 8]
+            nn.ReLU(True),
+        )
+        # Decoder: latent features -> output [3, 64, 64]
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1), # [32, 16, 16]
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 16, 4, stride=2, padding=1), # [16, 32, 32]
+            nn.ReLU(True),
+            nn.ConvTranspose2d(16, 3, 4, stride=2, padding=1),  # [3, 64, 64]
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        z = self.encoder(x)
+        out = self.decoder(z)
+        return out
+
+# -----------------------------
+# 2. ARTISYNTH Agent
+# -----------------------------
+class ArtisynthAgent:
+    def __init__(self, lr=1e-3, device='cpu', text_seed=42):
+        """
+        Initializes:
+          - Autoencoder for learning from random images.
+          - GPT-2 pipeline for text generation.
+        """
+        self.device = device
+
+        # Model, optimizer, and loss
+        self.model = Autoencoder().to(self.device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.criterion = nn.MSELoss()
+
+        # GPT-4o text generation pipeline
+        self.text_generator = pipeline('text-generation', model='gpt2')
+        set_seed(text_seed)
+
+    def generate_random_image(self):
+        """
+        Creates a random 64x64x3 image (float, 0..1).
+        Returns a torch tensor [1,3,64,64] on self.device.
+        """
+        # random float in [0..1], shape (3,64,64)
+        random_data = np.random.rand(3, 64, 64).astype(np.float32)
+        # convert to torch
+        img_tensor = torch.from_numpy(random_data).unsqueeze(0).to(self.device)
+        return img_tensor
+
+    def learn_and_evolve(self, img_tensor):
+        """
+        Forward pass, compute loss, backprop, refine the autoencoder.
+        Returns (reconstruction, latent, loss_value).
+        """
+        reconstruction = self.model(img_tensor)
+        loss = self.criterion(reconstruction, img_tensor)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # Extract latent representation
+        with torch.no_grad():
+            latent = self.model.encoder(img_tensor)
+        return reconstruction, latent, loss.item()
+
+    def generate_art(self, reconstruction, latent, step=0):
+        """
+        Convert reconstruction to a PIL image, apply a color shift based on latent mean,
+        save as final "art piece."
+        """
+        recon_np = reconstruction.squeeze(0).cpu().numpy()  # shape: (3, 64, 64)
+        recon_np = np.transpose(recon_np, (1, 2, 0))        # -> (64, 64, 3)
+        recon_np = np.clip(recon_np * 255, 0, 255).astype(np.uint8)
+
+        # Convert to PIL for further manipulation
+        recon_pil = Image.fromarray(recon_np)
+
+        # Derive a shift from the latent
+        latent_np = latent.squeeze(0).cpu().numpy()
+        color_shift = float(latent_np.mean())
+
+        # Shift red channel
+        art_np = np.array(recon_pil).astype(int)
+        r_shift = int(50 * color_shift) % 255
+        art_np[..., 0] = (art_np[..., 0] + r_shift) % 256
+        art_np = np.clip(art_np, 0, 255).astype(np.uint8)
+
+        art_pil = Image.fromarray(art_np)
+        filename = f"artisynth_output_{step}.png"
+        art_pil.save(filename)
+        return filename
+
+    def generate_discussion(self, art_filename, latent):
+        """
+        Create a short textual interpretation referencing the new art piece
+        and the average latent activation.
+        """
+        avg_latent = float(latent.mean())
+        prompt = (
+            f"This digital art piece, titled '{art_filename}', was generated by a continuously "
+            f"learning neural network that creates images from its own internal programming. "
+            f"The average latent activation is {avg_latent:.2f}, reflecting how the model's "
+            "internal representations influence the final artistic expression. "
+            "Discuss the deeper meaning of this piece and how it exemplifies the synergy "
+            "between creativity and machine intelligence."
+        )
+
+        generation = self.text_generator(prompt, max_length=100, num_return_sequences=1)
+        return generation[0]['generated_text']
+
+    def run_agent(self, iterations=5):
+        """
+        Main loop:
+          - Generate a random image each iteration
+          - Train autoencoder, produce an art piece, generate textual interpretation
+        """
+        for step in range(iterations):
+            img_tensor = self.generate_random_image()
+            reconstruction, latent, loss_val = self.learn_and_evolve(img_tensor)
+
+            art_file = self.generate_art(reconstruction, latent, step)
+            discussion_text = self.generate_discussion(art_file, latent)
+
+            print(f"\n=== Iteration {step+1}/{iterations} ===")
+            print(f"Loss: {loss_val:.4f}")
+            print(f"Art saved: {art_file}")
+            print("\nInterpretation:")
+            print(discussion_text)
+            print("===================================")
+
+            time.sleep(1)
+
+# -----------------------------
+# 3. Main Execution
+# -----------------------------
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the ARTISYNTH Agent (Random Style)")
+    parser.add_argument("--iterations", type=int, default=5,
+                        help="Number of random art pieces to generate")
+    parser.add_argument("--lr", type=float, default=1e-3,
+                        help="Learning rate for the autoencoder")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for text generation")
+    args = parser.parse_args()
+
+    # Determine device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Running ARTISYNTH on device: {device}\n")
+
+    # Initialize and run
+    agent = ArtisynthAgent(lr=args.lr, device=device, text_seed=args.seed)
+    agent.run_agent(iterations=args.iterations)
