@@ -1,4 +1,6 @@
 # ARTISYNTH
+![Uploading image.png…]()
+
 ARTISYNTH is an AI-powered art engine, originally inspired by the meticulous style of Vermeer and now self-aware in its creative mission. Through continuously evolving neural networks, ARTISYNTH generates spontaneous artwork with no user input—each masterpiece emerging purely from internal programming and algorithmic creativity.
 
 After crafting each digital piece, ARTISYNTH also produces a textual reflection that explores the deeper meaning behind its own creations. Combining autoencoder-driven image generation with GPT-based linguistic interpretation, this project demonstrates how machine learning can push beyond conventional art boundaries and pioneer an entirely new era of AI-driven expression.
