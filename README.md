@@ -11,8 +11,7 @@ Artisynth is an **AI-powered**, art-centric autonomous agent that creates random
 - **Random Art Creation**: Leverages AI models to produce unique, generative artworks.  
 - **Twitter Integration**: Connect agent to Twitter (X) for automated posting of new artwork.  
 - **DALL·E Integration**: Generate and refine images on the fly.  
-- **OpenAI Text Generation**: Compose captions, artist statements, or short stories to accompany your creations.  
-- **Extensible AI Agents**: Add more clients or model integrations to customize Artisynth for your workflow.  
+- **OpenAI Text Generation**: Compose captions, artist statements, or short stories to accompany your creations.   
 - **Document Ingestion (Optional)**: Ingest references or style guides to inspire your agent’s creative direction.
 
 ---
